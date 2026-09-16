@@ -99,9 +99,12 @@ export class ApiError extends Error {
 
 export async function request<Type>(path: string, method = 'GET', body?: unknown): Promise<Type> {
   let response: Response;
+  const controller = new AbortController();
+  const timeout = method === 'GET' ? setTimeout(() => controller.abort(), 20000) : undefined;
   try {
     response = await fetch(`/api${path}`, {
       method,
+      signal: controller.signal,
       credentials: 'same-origin',
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
@@ -110,10 +113,14 @@ export async function request<Type>(path: string, method = 'GET', body?: unknown
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
+    if (controller.signal.aborted)
+      throw new ApiError('The server took too long to respond. Please try again.', 408);
     throw new ApiError(
       'Cannot reach the server. Your draft is still here. Check your connection and try again.',
       0,
     );
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) {
     const error = (await response

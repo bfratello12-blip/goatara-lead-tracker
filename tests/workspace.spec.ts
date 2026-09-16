@@ -5,6 +5,19 @@ import type { CRMData } from '../shared/crm.ts';
 import { createApp } from '../server/app.ts';
 import { Store } from '../server/store.ts';
 
+test('stalled workspace reads show a retryable timeout and recover', async ({ page }) => {
+  await page.clock.install();
+  await page.route('**/api/workspace', () => {});
+  await page.goto('/');
+  await expect(page.getByText('Opening your workspace...')).toBeVisible();
+  await page.clock.fastForward(21000);
+  await expect(page.getByRole('heading', { name: 'Workspace unavailable' })).toBeVisible();
+  await expect(page.getByText('The server took too long to respond. Please try again.')).toBeVisible();
+  await page.unroute('**/api/workspace');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+});
+
 test('direct workspace access opens without an account and survives refresh', async ({ page }, testInfo) => {
   const store = new Store();
   const server = createApp(store, {

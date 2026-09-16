@@ -218,43 +218,46 @@ export class PostgresStore {
   }
 
   async snapshot(): Promise<CRMData> {
-    const [companies, contacts, notes, tasks, onboarding, activities, team, submissions] = await Promise.all([
-      this.sql<CompanyRow[]>`select * from public.companies order by updated_at desc`,
-      this.sql<
-        ContactRow[]
-      >`select id, company_id, name, email, phone, title, is_primary from public.contacts order by is_primary desc, name`,
-      this.sql<
-        NoteRow[]
-      >`select id, company_id, author_id, content, kind, pinned, created_at::text as created_at from public.notes order by pinned desc, created_at desc`,
-      this.sql<
-        Task[]
-      >`select id, company_id as "companyId", contact_id as "contactId", assignee_id as "assigneeId", title, due_at::text as "dueAt", priority, completed_at::text as "completedAt", created_at::text as "createdAt" from public.tasks order by due_at is null, due_at, created_at desc`,
-      this.sql<
-        OnboardingItem[]
-      >`select id, company_id as "companyId", title, category, status, updated_at::text as "updatedAt", position from public.onboarding order by position`,
-      this.sql<
-        Activity[]
-      >`select id, company_id as "companyId", actor_id as "actorId", type, description, created_at as "createdAt" from public.activities order by created_at desc`,
-      this.sql<TeamMember[]>`select id, name, email, role, color from public.users order by name`,
-      this.sql<
-        SubmissionRow[]
-      >`select id, company_id, received_at::text as received_at, payload from public.submissions order by received_at desc`,
-    ]);
-    return {
-      companies: companies.map((row) => this.companyFromRow(row)),
-      contacts: contacts.map((row) => this.contactFromRow(row)),
-      notes: notes.map((row) => this.noteFromRow(row)),
-      tasks,
-      onboarding,
-      activities,
-      team,
-      submissions: submissions.map((row) => ({
-        id: row.id,
-        companyId: row.company_id,
-        receivedAt: row.received_at,
-        payload: row.payload,
-      })),
-    };
+    return this.sql.begin('isolation level repeatable read read only', async (tx) => {
+      const [companies, contacts, notes, tasks, onboarding, activities, team, submissions] =
+        await Promise.all([
+          tx<CompanyRow[]>`select * from public.companies order by updated_at desc`,
+          tx<
+            ContactRow[]
+          >`select id, company_id, name, email, phone, title, is_primary from public.contacts order by is_primary desc, name`,
+          tx<
+            NoteRow[]
+          >`select id, company_id, author_id, content, kind, pinned, created_at::text as created_at from public.notes order by pinned desc, created_at desc`,
+          tx<
+            Task[]
+          >`select id, company_id as "companyId", contact_id as "contactId", assignee_id as "assigneeId", title, due_at::text as "dueAt", priority, completed_at::text as "completedAt", created_at::text as "createdAt" from public.tasks order by due_at is null, due_at, created_at desc`,
+          tx<
+            OnboardingItem[]
+          >`select id, company_id as "companyId", title, category, status, updated_at::text as "updatedAt", position from public.onboarding order by position`,
+          tx<
+            Activity[]
+          >`select id, company_id as "companyId", actor_id as "actorId", type, description, created_at as "createdAt" from public.activities order by created_at desc`,
+          tx<TeamMember[]>`select id, name, email, role, color from public.users order by name`,
+          tx<
+            SubmissionRow[]
+          >`select id, company_id, received_at::text as received_at, payload from public.submissions order by received_at desc`,
+        ]);
+      return {
+        companies: companies.map((row) => this.companyFromRow(row)),
+        contacts: contacts.map((row) => this.contactFromRow(row)),
+        notes: notes.map((row) => this.noteFromRow(row)),
+        tasks,
+        onboarding,
+        activities,
+        team,
+        submissions: submissions.map((row) => ({
+          id: row.id,
+          companyId: row.company_id,
+          receivedAt: row.received_at,
+          payload: row.payload,
+        })),
+      };
+    });
   }
 
   async createCompany(input: CompanyInput, actorId: string | null): Promise<Company> {
