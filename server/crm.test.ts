@@ -342,6 +342,29 @@ test('companies survive reopening the database and online backups retain committ
   }
 });
 
+test('serverless configuration ignores PORT while standalone servers validate it', () => {
+  const previous = { ...process.env };
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.DEMO_MODE = 'false';
+    process.env.APP_ORIGIN = 'https://crm.example.test';
+    process.env.COOKIE_SECURE = 'true';
+    process.env.SUPABASE_DB_URL = 'postgres://user:password@example.test:6543/postgres';
+    for (const port of ['', '0', '65536', 'not-a-port']) {
+      process.env.PORT = port;
+      assert.equal(runtimeConfig({ serverless: true }).config.production, true);
+      assert.throws(() => runtimeConfig(), /PORT must be between/);
+    }
+    process.env.PORT = '3002';
+    assert.equal(runtimeConfig().port, 3002);
+    delete process.env.SUPABASE_DB_URL;
+    assert.throws(() => runtimeConfig({ serverless: true }), /SUPABASE_DB_URL/);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+});
+
 test('production configuration requires a Supabase Postgres connection', () => {
   const previous = { ...process.env };
   try {

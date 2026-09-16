@@ -1,10 +1,10 @@
 import type { AppConfig } from './auth.ts';
 
-export function runtimeConfig() {
+export function runtimeConfig({ serverless = false }: { serverless?: boolean } = {}) {
   const production = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
   const demoMode = process.env.DEMO_MODE === 'true' || (!production && process.env.DEMO_MODE === undefined);
   const host = process.env.HOST ?? '127.0.0.1';
-  const port = Number(process.env.PORT ?? 3001);
+  const port = serverless ? 3001 : Number(process.env.PORT ?? 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('PORT must be between 1 and 65535');
   if (demoMode && (production || !['127.0.0.1', 'localhost', '::1'].includes(host)))
