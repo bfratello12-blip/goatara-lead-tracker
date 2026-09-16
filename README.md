@@ -107,6 +107,8 @@ Idempotency-Key: <stable, unique form-submission ID>
 
 Website integrations require bearer authentication. Direct-access CRM mutations retain allowed-origin checks but do not require session cookies or CSRF tokens. Origin checks are not authorization. The intake secret is never returned by Settings.
 
+On Vercel, browser writes accept `APP_ORIGIN` plus the exact HTTPS origins from the platform's `VERCEL_URL` and `VERCEL_BRANCH_URL` system variables. Keep those system variables available to the function. Custom domains must match `APP_ORIGIN`; arbitrary `*.vercel.app` sites and client-supplied forwarding headers are not trusted. After changing environment variables, redeploy. If a form reports "Request origin is not allowed", use the configured main CRM URL or verify these deployment settings.
+
 ## Architecture
 
 | Area      | Implementation                                                                                                                           |

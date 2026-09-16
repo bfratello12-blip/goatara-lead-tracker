@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from './app.ts';
 import { Store } from './store.ts';
 import { createUser, type AppConfig } from './auth.ts';
+import { runtimeConfig } from './config.ts';
 
 const config: AppConfig = {
   production: false,
@@ -14,6 +15,63 @@ const config: AppConfig = {
   trustProxy: false,
   webhookSecret: 'test-only-webhook-secret-that-is-long-enough',
 };
+
+test('Vercel manual leads accept exact configured origins and reject unrelated origins', async (testContext) => {
+  const previous = { ...process.env };
+  let deploymentConfig: AppConfig;
+  try {
+    Object.assign(process.env, {
+      NODE_ENV: 'production',
+      DEMO_MODE: 'false',
+      AUTH_DISABLED: 'true',
+      COOKIE_SECURE: 'true',
+      APP_ORIGIN: 'https://crm.example.test',
+      VERCEL: '1',
+      VERCEL_URL: 'crm-build-123.vercel.app',
+      VERCEL_BRANCH_URL: 'crm-git-main.vercel.app',
+      SUPABASE_DB_URL: 'postgres://unused:unused@127.0.0.1:1/unused',
+    });
+    deploymentConfig = runtimeConfig({ serverless: true }).config;
+    assert.deepEqual(runtimeConfig().config.deploymentOrigins, []);
+    process.env.VERCEL = '0';
+    assert.deepEqual(runtimeConfig({ serverless: true }).config.deploymentOrigins, []);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+  const store = new Store();
+  const server = createApp(store, deploymentConfig).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  testContext.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/companies`;
+  for (const origin of [deploymentConfig.appOrigin, ...deploymentConfig.deploymentOrigins!]) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin },
+      body: JSON.stringify({ businessName: 'Manual lead' }),
+    });
+    assert.equal(response.status, 201);
+  }
+  for (const origin of [
+    '',
+    'null',
+    'https://other.vercel.app',
+    'https://crm-build-123.vercel.app.evil.test',
+    'http://crm-build-123.vercel.app',
+  ]) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin, 'x-forwarded-host': 'crm-build-123.vercel.app' },
+      body: JSON.stringify({ businessName: 'Denied' }),
+    });
+    assert.equal(response.status, 403);
+  }
+  assert.equal(store.snapshot().companies.length, 3);
+});
 
 test('private API enforces authentication, origin and CSRF while allowing authenticated workflows', async (testContext) => {
   const store = new Store();

@@ -25,6 +25,12 @@ export function runtimeConfig({ serverless = false }: { serverless?: boolean } =
     production,
     demoMode,
     appOrigin,
+    deploymentOrigins:
+      serverless && process.env.VERCEL === '1'
+        ? [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL]
+            .filter((hostname): hostname is string => Boolean(hostname))
+            .map((hostname) => new URL(`https://${hostname}`).origin)
+        : [],
     cookieSecure,
     trustProxy: process.env.TRUST_PROXY === 'true',
     webhookSecret: process.env.LEAD_WEBHOOK_SECRET ?? '',

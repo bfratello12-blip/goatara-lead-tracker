@@ -7,6 +7,7 @@ export interface AppConfig {
   production: boolean;
   demoMode: boolean;
   appOrigin: string;
+  deploymentOrigins?: string[];
   cookieSecure: boolean;
   trustProxy: boolean;
   webhookSecret: string;
@@ -150,6 +151,7 @@ export class Sessions {
     const origin = request.get('origin');
     if (!origin) return false;
     if (origin === this.config.appOrigin) return true;
+    if (this.config.deploymentOrigins?.includes(origin)) return true;
     return !this.config.production && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   }
 }
