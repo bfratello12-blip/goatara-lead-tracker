@@ -15,6 +15,7 @@ export interface Session {
   user: TeamMember;
   csrfToken: string;
   demoMode: boolean;
+  authDisabled: boolean;
 }
 interface CRMContextValue {
   data: CRMData;

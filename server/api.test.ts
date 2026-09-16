@@ -97,6 +97,63 @@ test('private API enforces authentication, origin and CSRF while allowing authen
   assert.equal((await fetch(`${base}/api/workspace`, { headers: { cookie } })).status, 401);
 });
 
+test('direct access opens an empty workspace and saves without a login or CSRF token', async (testContext) => {
+  const store = new Store();
+  const server = createApp(store, { ...config, authDisabled: true }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  testContext.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
+  const sessions = await Promise.all([fetch(`${base}/auth/me`), fetch(`${base}/auth/me`)]);
+  for (const response of sessions) {
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('set-cookie'), null);
+    const session = (await response.json()) as { user: { id: string; name: string }; csrfToken: string };
+    assert.equal(session.user.name, 'Shared workspace');
+    assert.equal(session.csrfToken, '');
+  }
+  const headers = { 'content-type': 'application/json', origin: config.appOrigin };
+  const created = await fetch(`${base}/companies`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ businessName: 'Direct company' }),
+  });
+  assert.equal(created.status, 201);
+  const company = (await created.json()) as { id: string };
+  const note = await fetch(`${base}/companies/${company.id}/notes`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ kind: 'note', content: 'Shared update' }),
+  });
+  assert.equal(note.status, 201);
+  assert.equal(store.snapshot().team.length, 1);
+  assert.equal(store.snapshot().notes[0].authorId, 'user-workspace');
+  assert.equal((await fetch(`${base}/workspace`)).status, 200);
+  assert.equal(
+    (
+      await fetch(`${base}/companies`, {
+        method: 'POST',
+        headers: { ...headers, origin: 'https://untrusted.example' },
+        body: JSON.stringify({ businessName: 'Denied' }),
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await fetch(`${base}/intake/leads`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ businessName: 'Denied' }),
+      })
+    ).status,
+    401,
+  );
+});
+
 test('intake is server-authenticated, idempotent and does not expose private company information', async (testContext) => {
   const store = new Store();
   const server = createApp(store, config).listen(0, '127.0.0.1');

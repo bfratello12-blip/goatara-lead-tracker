@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState, type FormEvent } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
@@ -18,8 +18,6 @@ import {
   FlaskConical,
   LayoutDashboard,
   LoaderCircle,
-  LockKeyhole,
-  LogOut,
   Menu,
   MessageSquare,
   RefreshCw,
@@ -31,9 +29,9 @@ import {
   X,
 } from 'lucide-react';
 import logo from '../images/logos/Goataralogo_black.png';
-import { CRMProvider, useCRM, useSave, type Session } from './context.tsx';
-import { ApiError, clearLocalDrafts, isOverdue, request, setCsrfToken, websiteLabel } from './lib.ts';
-import { Avatar, Button, Empty, Field, IconButton, InlineError, Modal } from './components/ui.tsx';
+import { CRMProvider, useCRM, type Session } from './context.tsx';
+import { request, setCsrfToken, websiteLabel, isOverdue } from './lib.ts';
+import { Avatar, Empty, IconButton, Modal } from './components/ui.tsx';
 import Overview from './pages/Overview.tsx';
 import Pipeline from './pages/Pipeline.tsx';
 import Companies from './pages/Companies.tsx';
@@ -190,7 +188,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
   );
 }
 
-function SidebarContent({ close, onLogout }: { close?: () => void; onLogout: () => void }) {
+function SidebarContent({ close }: { close?: () => void }) {
   const { session, data } = useCRM();
   const openTasks = data.tasks.filter((task) => !task.completedAt).length;
   return (
@@ -233,7 +231,7 @@ function SidebarContent({ close, onLogout }: { close?: () => void; onLogout: () 
       <div className="sidebar-bottom">
         <div className="workspace-security">
           <ShieldCheck size={14} />
-          <span>{session.demoMode ? 'Local demo workspace' : 'Private workspace'}</span>
+          <span>{session.demoMode ? 'Local demo workspace' : 'Shared workspace'}</span>
         </div>
         <Dropdown.Root>
           <Dropdown.Trigger asChild>
@@ -262,17 +260,10 @@ function SidebarContent({ close, onLogout }: { close?: () => void; onLogout: () 
                 </Link>
               </Dropdown.Item>
               <Dropdown.Separator />
-              {session.demoMode ? (
-                <Dropdown.Item disabled>
-                  <FlaskConical size={15} />
-                  Local demo
-                </Dropdown.Item>
-              ) : (
-                <Dropdown.Item onSelect={onLogout}>
-                  <LogOut size={15} />
-                  Sign out
-                </Dropdown.Item>
-              )}
+              <Dropdown.Item disabled>
+                <ShieldCheck size={15} />
+                Direct workspace access
+              </Dropdown.Item>
             </Dropdown.Content>
           </Dropdown.Portal>
         </Dropdown.Root>
@@ -281,11 +272,8 @@ function SidebarContent({ close, onLogout }: { close?: () => void; onLogout: () 
   );
 }
 
-function Shell({ onLogout: signOut }: { onLogout: () => Promise<void> }) {
+function Shell() {
   const { data, session, refresh, notify } = useCRM();
-  const onLogout = () => {
-    void signOut().catch((issue: Error) => notify(issue.message, true));
-  };
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -314,7 +302,7 @@ function Shell({ onLogout: signOut }: { onLogout: () => Promise<void> }) {
         Skip to content
       </a>
       <aside className="sidebar">
-        <SidebarContent onLogout={onLogout} />
+        <SidebarContent />
       </aside>
       <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
         <Dialog.Portal>
@@ -326,7 +314,7 @@ function Shell({ onLogout: signOut }: { onLogout: () => Promise<void> }) {
                 <X size={18} />
               </button>
             </Dialog.Close>
-            <SidebarContent close={() => setMobileOpen(false)} onLogout={onLogout} />
+            <SidebarContent close={() => setMobileOpen(false)} />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -443,70 +431,6 @@ function Shell({ onLogout: signOut }: { onLogout: () => Promise<void> }) {
   );
 }
 
-function SignIn({
-  onSession,
-  initialError,
-}: {
-  onSession: (session: Session) => void;
-  initialError: string;
-}) {
-  const { saving, error, save } = useSave();
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void save(async () =>
-      onSession(
-        await request<Session>('/auth/login', 'POST', {
-          email: form.get('email'),
-          password: form.get('password'),
-        }),
-      ),
-    );
-  }
-  return (
-    <div className="signin-page">
-      <header className="signin-top">
-        <img src={logo} alt="Goatara" />
-        <span>
-          <LockKeyhole size={14} />
-          Private workspace
-        </span>
-      </header>
-      <div className="signin-content">
-        <span className="signin-icon">
-          <LockKeyhole size={25} strokeWidth={1.5} />
-        </span>
-        <h1>Welcome back.</h1>
-        <p>Sign in to your Goatara workspace.</p>
-        <form onSubmit={submit}>
-          <Field label="Work email">
-            <input name="email" type="email" required autoFocus autoComplete="username" />
-          </Field>
-          <Field label="Password">
-            <input
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              maxLength={1024}
-            />
-          </Field>
-          <InlineError message={error || initialError} />
-          <Button type="submit" variant="primary" busy={saving}>
-            Sign in
-            <ArrowRight size={16} />
-          </Button>
-        </form>
-        <div className="signin-private">
-          <ShieldCheck size={14} />
-          Team access only
-        </div>
-      </div>
-      <footer>Goatara · Internal workspace</footer>
-    </div>
-  );
-}
-
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -519,25 +443,9 @@ export default function App() {
   useEffect(() => {
     void request<Session>('/auth/me')
       .then(acceptSession)
-      .catch((issue: Error) => {
-        if (!(issue instanceof ApiError && issue.status === 401)) setError(issue.message);
-      })
+      .catch((issue: Error) => setError(issue.message))
       .finally(() => setLoading(false));
-    const expired = () => {
-      setSession(null);
-      setCsrfToken('');
-      setError('Your session expired. Sign in to continue.');
-    };
-    window.addEventListener('goatara:session-expired', expired);
-    return () => window.removeEventListener('goatara:session-expired', expired);
   }, []);
-  async function logout() {
-    await request('/auth/logout', 'POST');
-    clearLocalDrafts();
-    setSession(null);
-    setCsrfToken('');
-    setError('');
-  }
   if (loading)
     return (
       <div className="app-loading">
@@ -545,11 +453,17 @@ export default function App() {
         <LoaderCircle size={24} className="spin" />
       </div>
     );
-  if (!session) return <SignIn onSession={acceptSession} initialError={error} />;
+  if (!session)
+    return (
+      <div className="app-loading">
+        <img src={logo} alt="Goatara" />
+        <p>{error || 'Workspace access is not configured. Add a team member to the database.'}</p>
+      </div>
+    );
   return (
     <CRMProvider session={session}>
       <Routes>
-        <Route element={<Shell onLogout={logout} />}>
+        <Route element={<Shell />}>
           <Route index element={<Overview />} />
           <Route path="pipeline" element={<Pipeline />} />
           <Route path="companies" element={<Companies />} />

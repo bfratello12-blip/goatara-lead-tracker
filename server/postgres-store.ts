@@ -158,6 +158,13 @@ export class PostgresStore {
     return rows[0];
   }
 
+  async getWorkspaceUser(): Promise<UserRecord | undefined> {
+    await this.sql`insert into public.users (id, name, email, role, color, password_hash)
+      values ('user-workspace', 'Shared workspace', 'workspace@goatara.invalid', 'admin', 'green', null)
+      on conflict (id) do nothing`;
+    return this.getUser('user-workspace');
+  }
+
   async hasUsers(): Promise<boolean> {
     const rows = await this.sql<{ id: string }[]>`select id from public.users limit 1`;
     return Boolean(rows[0]);

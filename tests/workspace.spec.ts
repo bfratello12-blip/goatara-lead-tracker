@@ -3,22 +3,14 @@ import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { CRMData } from '../shared/crm.ts';
 import { createApp } from '../server/app.ts';
-import { createUser } from '../server/auth.ts';
 import { Store } from '../server/store.ts';
 
-test('private team sign-in rejects bad credentials and invalidates the session on logout', async ({
-  page,
-}, testInfo) => {
+test('direct workspace access opens without an account and survives refresh', async ({ page }, testInfo) => {
   const store = new Store();
-  createUser(store, {
-    name: 'Private Admin',
-    email: 'admin@example.test',
-    password: 'e2e-only-password-123',
-    role: 'admin',
-  });
   const server = createApp(store, {
     production: false,
     demoMode: false,
+    authDisabled: true,
     appOrigin: 'http://127.0.0.1:5175',
     cookieSecure: false,
     trustProxy: false,
@@ -33,22 +25,25 @@ test('private team sign-in rejects bad credentials and invalidates the session o
       await route.fulfill({ response: await route.fetch({ url: upstream.toString() }) });
     });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
-    await page.getByLabel('Work email').fill('admin@example.test');
-    await page.getByLabel('Password', { exact: true }).fill('incorrect-password');
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('Email or password is incorrect');
-    await page.getByLabel('Password', { exact: true }).fill('e2e-only-password-123');
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
     await expect(page.locator('.demo-badge')).toHaveCount(0);
     if (testInfo.project.name === 'mobile')
       await page.getByRole('button', { name: 'Open navigation' }).click();
-    await page.getByRole('button', { name: 'Private Admin Administrator' }).click();
-    await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+    await page.getByRole('button', { name: 'Shared workspace Administrator' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Sign out', exact: true })).toHaveCount(0);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await page.goto('/team');
+    await page.getByRole('button', { name: 'Add member', exact: true }).click();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await page.getByLabel('Full name').fill('New teammate');
+    await page.getByLabel('Work email').fill('teammate@example.test');
+    await page.getByRole('dialog').getByRole('button', { name: 'Add member', exact: true }).click();
+    await expect(page.getByRole('cell', { name: /New teammate/ })).toBeVisible();
     expect(store.get<{ count: number }>('SELECT COUNT(*) AS count FROM sessions')?.count).toBe(0);
   } finally {
     await page.unrouteAll({ behavior: 'wait' });

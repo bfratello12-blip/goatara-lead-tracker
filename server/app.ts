@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { z, ZodError } from 'zod';
 import { resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { AppError } from './store.ts';
 import {
   Sessions,
@@ -91,6 +92,7 @@ export function createApp(store: AuthStore, config: AppConfig) {
     '/api/auth/login',
     rateLimit({ windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-7', legacyHeaders: false }),
     async (request, response) => {
+      if (config.authDisabled) throw new AppError('Login is disabled for this workspace', 409);
       const input = loginSchema.parse(request.body);
       const { user, csrfToken } = await sessions.login(input.email, input.password, response);
       response.json({ user, csrfToken, demoMode: config.demoMode });
@@ -102,6 +104,7 @@ export function createApp(store: AuthStore, config: AppConfig) {
     if (!auth) throw new AppError('Sign in to continue', 401);
     response.locals.auth = auth;
     if (
+      !config.authDisabled &&
       !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
       !safeEqual(request.get('x-csrf-token') ?? '', auth.csrfToken)
     )
@@ -111,13 +114,14 @@ export function createApp(store: AuthStore, config: AppConfig) {
 
   app.get('/api/auth/me', (_request, response) => {
     const { user, csrfToken } = context(response);
-    response.json({ user, csrfToken, demoMode: config.demoMode });
+    response.json({ user, csrfToken, demoMode: config.demoMode, authDisabled: Boolean(config.authDisabled) });
   });
   app.post('/api/auth/logout', async (_request, response) => {
     await sessions.logout(context(response), response);
     response.status(204).end();
   });
   app.post('/api/auth/password', async (request, response) => {
+    if (config.authDisabled) throw new AppError('Passwords are disabled for this workspace', 409);
     if (config.demoMode) throw new AppError('Password changes are disabled in the demo workspace');
     const input = passwordSchema.parse(request.body);
     const auth = context(response);
@@ -142,7 +146,13 @@ export function createApp(store: AuthStore, config: AppConfig) {
     if (context(response).user.role !== 'admin')
       throw new AppError('Only administrators can add team members', 403);
     if (config.demoMode) throw new AppError('Create team accounts in the private workspace, not the demo');
-    response.status(201).json(await createUserAsync(store, userSchema.parse(request.body)));
+    const input = config.authDisabled
+      ? {
+          ...userSchema.omit({ password: true }).parse(request.body),
+          password: randomBytes(48).toString('hex'),
+        }
+      : userSchema.parse(request.body);
+    response.status(201).json(await createUserAsync(store, input));
   });
 
   app.post('/api/companies', async (request, response) => {

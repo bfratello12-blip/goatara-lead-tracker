@@ -11,6 +11,7 @@ export interface AppConfig {
   trustProxy: boolean;
   webhookSecret: string;
   supabaseDbUrl?: string;
+  authDisabled?: boolean;
 }
 
 export interface AuthContext {
@@ -93,6 +94,12 @@ export class Sessions {
   }
 
   async resolve(request: Request): Promise<AuthContext | null> {
+    if (this.config.authDisabled) {
+      const user = this.config.demoMode
+        ? await this.store.getUser('user-alex')
+        : await this.store.getWorkspaceUser();
+      return user ? { user: publicUser(user), csrfToken: '', tokenHash: null } : null;
+    }
     if (this.config.demoMode) {
       const user = await this.store.getUser('user-alex');
       return user ? { user: publicUser(user), csrfToken: this.demoCsrf, tokenHash: null } : null;

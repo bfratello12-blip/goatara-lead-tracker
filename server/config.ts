@@ -28,6 +28,7 @@ export function runtimeConfig() {
     cookieSecure,
     trustProxy: process.env.TRUST_PROXY === 'true',
     webhookSecret: process.env.LEAD_WEBHOOK_SECRET ?? '',
+    authDisabled: process.env.AUTH_DISABLED !== 'false',
   };
   return {
     config,

@@ -628,6 +628,17 @@ export class Store {
     );
   }
 
+  async getWorkspaceUser(): Promise<UserRecord | undefined> {
+    this.db
+      .prepare(
+        `INSERT INTO users (id, name, email, role, color, passwordHash, createdAt)
+      VALUES ('user-workspace', 'Shared workspace', 'workspace@goatara.invalid', 'admin', 'green', NULL, ?)
+      ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(new Date().toISOString());
+    return this.getUser('user-workspace');
+  }
+
   async hasUsers(): Promise<boolean> {
     return Boolean(this.get('SELECT id FROM users LIMIT 1'));
   }

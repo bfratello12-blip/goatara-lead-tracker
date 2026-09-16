@@ -1,6 +1,6 @@
 # Goatara CRM
 
-A private, server-backed workspace for Goatara's sales and client relationships.
+A server-backed workspace for Goatara's sales and client relationships.
 
 ## Start locally
 
@@ -17,15 +17,17 @@ With no `.env`, development opens a clearly labeled **local demo** with fictiona
 
 The sample company websites use reserved `.example` domains. They are illustrative records, not live client sites.
 
-## Private team workspace
+## Shared team workspace
 
 1. Create `.env` using `.env.example` as the starting point. Keep `DEMO_MODE=false` and `DATABASE_PATH=data/goatara.sqlite`. This opens a separate, empty database and leaves the demo untouched.
-2. Run `npm run user:create` in your own interactive terminal. Enter your name, email, and a password of at least 12 characters. Password entry is hidden. There are no default private-workspace credentials and no public registration endpoint.
-3. Run `npm run dev` and sign in. Administrators can add further accounts in **Team**. Deliver initial passwords through a secure channel; each member can change their password in **Settings**.
+2. Keep `AUTH_DISABLED=true` (the default). No account bootstrap or password is required.
+3. Run `npm run dev` and open the URL. Add teammates in **Team** for ownership and task assignment without setting passwords.
+
+Direct access has no application login or logout. Anyone who can reach the CRM URL can read, export, and edit all records and add teammates. Protect a hosted CRM with deployment protection, an identity-aware gateway, or a private network. A hard-to-guess URL is not access control. Keep the website intake accessible to its authorized server integration.
 
 For development, `APP_ORIGIN` must match the browser origin. Both loopback hostnames are accepted in development. For a port conflict, set `PORT` and `VITE_PORT` to available API and frontend ports and restart; the Vite proxy follows `PORT`.
 
-All members can work with all CRM records. Administrators additionally create team accounts. This is intentionally a shared small-team workspace, not a per-account permission system. Each note records the authenticated author; callers cannot impersonate another author.
+New notes and activity in the non-demo workspace use a dedicated **Shared workspace** author, created automatically on first access. Existing authors and records are preserved; direct access cannot identify individual visitors. Legacy backend session support remains, but `AUTH_DISABLED=false` is not supported by the no-login frontend.
 
 ## What is implemented
 
@@ -103,18 +105,18 @@ Idempotency-Key: <stable, unique form-submission ID>
 - A new company returns **201**; a matched company or replay returns **200**. Responses contain only `companyId`, `created`, and `replayed`.
 - Handle **400** validation errors and **409** conflicts for review. Retry **429**, network errors and **5xx** with exponential backoff, honoring `Retry-After` when supplied. The public website should persist/queue submissions before delivery so a CRM outage cannot lose a lead.
 
-Website integrations use bearer authentication rather than team sessions or CSRF tokens. Browser-based CRM mutations require both an allowed origin and the session's CSRF token. The intake secret is never returned by Settings.
+Website integrations require bearer authentication. Direct-access CRM mutations retain allowed-origin checks but do not require session cookies or CSRF tokens. Origin checks are not authorization. The intake secret is never returned by Settings.
 
 ## Architecture
 
-| Area           | Implementation                                                                                                                       |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Frontend       | React 19, TypeScript, Vite, React Router                                                                                             |
-| Interface      | Radix dialogs/menus/tooltips, Lucide icons, locally bundled DM Sans and Manrope                                                      |
-| Server         | Express 5 with Zod validation                                                                                                        |
-| Storage        | SQLite, foreign keys, indexes, WAL, transactions, schema version migrations                                                          |
-| Authentication | Scrypt-hashed passwords; random server-side sessions; HttpOnly, SameSite cookies; CSRF/origin checks; login and intake rate limiting |
-| Tests          | Node test runner for domain/API/security; Playwright for desktop and mobile                                                          |
+| Area      | Implementation                                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend  | React 19, TypeScript, Vite, React Router                                                                                                 |
+| Interface | Radix dialogs/menus/tooltips, Lucide icons, locally bundled DM Sans and Manrope                                                          |
+| Server    | Express 5 with Zod validation                                                                                                            |
+| Storage   | SQLite, foreign keys, indexes, WAL, transactions, schema version migrations                                                              |
+| Access    | Direct shared access; allowed-origin checks; bearer-secret protected website intake; external deployment protection required for privacy |
+| Tests     | Node test runner for domain/API/security; Playwright for desktop and mobile                                                              |
 
 ```text
 src/              Views, forms, reusable UI, and API client
@@ -135,13 +137,13 @@ The production path now uses Supabase Postgres and includes a Vercel serverless 
 
 1. Create a Supabase project. In the Supabase SQL editor, run [supabase/migrations/20260916000100_crm.sql](supabase/migrations/20260916000100_crm.sql). Do not use the browser anon key for the CRM server; the schema intentionally has no public RLS policies.
 2. Copy the Supabase **transaction pooler** connection string into `SUPABASE_DB_URL`. Use the pooler hostname and port for Vercel rather than a direct database connection. Keep the password URL-encoded.
-3. Create a private `.env` with `DEMO_MODE=false`, `SUPABASE_DB_URL`, `APP_ORIGIN=https://crm.your-domain.example`, `COOKIE_SECURE=true`, `TRUST_PROXY=true`, and a 32+ character `LEAD_WEBHOOK_SECRET`.
-4. If the current private SQLite workspace already contains data, stop the local server and run `npm run db:migrate:supabase` once. It copies users and all CRM records while preserving IDs and timestamps; sessions are intentionally not copied, so everyone signs in again.
-5. Run `npm run user:create` with `SUPABASE_DB_URL` configured to create the first administrator directly in Supabase.
+3. Create a private `.env` with `DEMO_MODE=false`, `AUTH_DISABLED=true`, `SUPABASE_DB_URL`, `APP_ORIGIN=https://crm.your-domain.example`, `COOKIE_SECURE=true`, `TRUST_PROXY=true`, and a 32+ character `LEAD_WEBHOOK_SECRET`.
+4. If the current private SQLite workspace already contains data, stop the local server and run `npm run db:migrate:supabase` once. Sessions are intentionally not copied; direct access does not use them.
+5. Configure external access protection before exposing customer data. The shared workspace identity is created automatically; no administrator bootstrap is required.
 6. Import this repository into Vercel, set the same server-only environment variables for **Production**, and deploy. `vercel.json` builds `dist` and routes `/api/*` to the API function.
-7. Configure the goatara.com Vercel project to forward its form server-side to the production CRM intake URL. See [docs/goatara-vercel-integration.md](docs/goatara-vercel-integration.md). Verify sign-in, a real form submission, matching, and idempotent retry before using customer data.
+7. Configure the goatara.com Vercel project to forward its form server-side to the production CRM intake URL. See [docs/goatara-vercel-integration.md](docs/goatara-vercel-integration.md). Verify direct opening, external access protection, a real form submission, matching, and idempotent retry before using customer data.
 
-The private workspace is not preconfigured for an external identity provider, SMTP, or email/SMS reminders. Mail/phone links open the user's installed tools. Account creation is admin-managed; there is no self-service password recovery or MFA in this initial version. Use an identity-aware gateway/VPN if those controls are required before deployment. Restrict Supabase/Vercel environment access and maintain an operational procedure to revoke sessions and remove credentials when a team member leaves while retaining their author record.
+The workspace is not preconfigured for an external identity provider, SMTP, or email/SMS reminders. Mail/phone links open the user's installed tools. Restrict Supabase/Vercel environment access and revoke access through your external gateway when a team member leaves, retaining their historical author record.
 
 Do not store passwords, API tokens, or client access credentials in CRM notes. Access checklists track whether permission has been received, not the secret credentials themselves. SQLite and JSON exports contain private client information and are not application-encrypted; use encrypted disks/backups and restricted filesystem permissions.
 
@@ -170,6 +172,6 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Browser tests start their own API/frontend on ports **3015/5175** with an in-memory database. They do not use or reset the normal demo/private files. Tests cover real private sign-in and logout, one-record conversion, lead fields and retries, draft recovery and in-flight typing, tasks, onboarding, search, navigation, mobile layouts and logo loading. Node tests also cover authentication, CSRF, input validation, foreign-key relationships, durable persistence and verified backups. Screenshot and trace artifacts go to ignored `test-results/`. Use `npm run format` when editing the source.
+Browser tests start their own API/frontend on ports **3015/5175** with an in-memory database. They do not use or reset the normal demo/private files. Tests cover direct opening and refresh without accounts, password-free team creation, one-record conversion, lead fields and retries, draft recovery and in-flight typing, tasks, onboarding, search, navigation, mobile layouts and logo loading. Node tests also cover direct access, legacy authentication, CSRF, input validation, foreign-key relationships, durable persistence and verified backups. Screenshot and trace artifacts go to ignored `test-results/`. Use `npm run format` when editing the source.
 
 No marketing attribution, UTM storage, click IDs, advertising tracking, or lead-source tracking is implemented.

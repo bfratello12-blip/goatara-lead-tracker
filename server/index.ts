@@ -10,9 +10,9 @@ if (config.demoMode && store instanceof Store) seedDemo(store);
 const app = createApp(store, config);
 const server = app.listen(port, host, async () => {
   console.log(
-    `Goatara API: http://${host}:${port} (${config.demoMode ? 'local demo workspace' : 'private workspace'})`,
+    `Goatara API: http://${host}:${port} (${config.demoMode ? 'local demo workspace' : config.authDisabled ? 'direct-access workspace' : 'authenticated workspace'})`,
   );
-  if (!config.demoMode && !(await store.hasUsers()))
+  if (!config.demoMode && !config.authDisabled && !(await store.hasUsers()))
     console.log('No team accounts yet. Run npm run user:create in another terminal.');
 });
 server.on('error', (error) => {

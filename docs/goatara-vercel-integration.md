@@ -96,7 +96,7 @@ This is the fastest way to connect the live form, but it leaves SQLite and the C
 
 ### Option B: recommended final deployment
 
-Move the CRM persistence layer from SQLite to Supabase Postgres and deploy the CRM API/UI on Vercel or another Node host. Keep company matching, conversion, notes, contacts, tasks, onboarding, and submission history server-side. Use Supabase Auth or the current scrypt session layer; do not expose service-role credentials to the browser.
+Deploy the Supabase-backed CRM API/UI on Vercel or another Node host. Company matching, conversion, notes, contacts, tasks, onboarding, and submission history remain server-side. The CRM opens directly without application login. Anyone who can reach its URL can read and edit all records; use external deployment protection or a private network for privacy. Do not expose database credentials to the browser.
 
 Option B is the better long-term choice because it gives the Vercel deployment durable storage, backups, concurrent access, and a clean path to multiple CRM users. The current UI and business rules can be retained; the database adapter is the part that needs to change.
 
@@ -115,7 +115,7 @@ In Supabase:
 npm run db:migrate:supabase
 ```
 
-The importer preserves IDs, users, password hashes, companies, contacts, notes, tasks, onboarding, activities and submission history. It deliberately does not migrate sessions, so every user signs in again.
+The importer copies users, password hashes, companies, contacts, notes, tasks, onboarding, activities and submission history. It deliberately does not migrate sessions; direct access does not use them. Verify imported records before switching traffic.
 
 In Vercel, set these Production environment variables:
 
@@ -125,11 +125,12 @@ APP_ORIGIN=https://crm.your-domain.example
 COOKIE_SECURE=true
 TRUST_PROXY=true
 DEMO_MODE=false
+AUTH_DISABLED=true
 LEAD_WEBHOOK_SECRET=<32+ character random secret>
 SUPABASE_DB_POOL_SIZE=5
 ```
 
-Deploy this repository as the CRM project. `vercel.json` builds the frontend and routes `/api/*` to `api/index.ts`. Run `npm run user:create` once with the production variables configured if the imported database has no administrator.
+Deploy this repository as the CRM project. `vercel.json` builds the frontend and routes `/api/*` to `api/index.ts`. No account setup is required. A shared workspace author is created on first access without changing existing records. External deployment protection must still permit the authorized website server to reach the bearer-protected intake endpoint.
 
 In the goatara.com Vercel project, add the server-side form handler and set:
 

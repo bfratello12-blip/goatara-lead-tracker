@@ -111,16 +111,18 @@ export function TeamPage() {
             <Field label="Work email" required className="full">
               <input name="email" type="email" required />
             </Field>
-            <Field label="Initial password" required className="full">
-              <input
-                name="password"
-                type="password"
-                required
-                minLength={12}
-                maxLength={1024}
-                autoComplete="new-password"
-              />
-            </Field>
+            {!session.authDisabled && (
+              <Field label="Initial password" required className="full">
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  minLength={12}
+                  maxLength={1024}
+                  autoComplete="new-password"
+                />
+              </Field>
+            )}
             <Field label="Role" className="full">
               <select name="role">
                 <option value="member">Member</option>
@@ -202,14 +204,14 @@ export function SettingsPage() {
               <dt>Access</dt>
               <dd>
                 <LockKeyhole size={14} />
-                Private team workspace
+                {session.authDisabled ? 'Direct access' : 'Authenticated team workspace'}
               </dd>
             </div>
             <div>
               <dt>Environment</dt>
               <dd>
                 <span className={`badge ${session.demoMode ? 'status-proposal' : 'status-active'}`}>
-                  {session.demoMode ? 'Local demo' : 'Private workspace'}
+                  {session.demoMode ? 'Local demo' : 'Shared workspace'}
                 </span>
               </dd>
             </div>
@@ -273,7 +275,7 @@ export function SettingsPage() {
           </dl>
         </section>
         <section className="settings-section">
-          <SectionHeading title="Your account" />
+          <SectionHeading title={session.authDisabled ? 'Workspace identity' : 'Your account'} />
           <div className="settings-user">
             <Avatar name={session.user.name} color={session.user.color} />
             <div>
@@ -284,50 +286,54 @@ export function SettingsPage() {
               {session.user.role === 'admin' ? 'Administrator' : 'Member'}
             </span>
           </div>
-          <h3 className="small-section-title password-heading">
-            <KeyRound size={15} />
-            Change password{session.demoMode && <span className="muted">Unavailable in demo</span>}
-          </h3>
-          <form className="password-form" onSubmit={changePassword}>
-            <Field label="Current password">
-              <input
-                name="currentPassword"
-                type="password"
-                required
-                disabled={session.demoMode}
-                autoComplete="current-password"
-              />
-            </Field>
-            <div className="form-grid">
-              <Field label="New password">
-                <input
-                  name="newPassword"
-                  type="password"
-                  required
-                  minLength={12}
-                  maxLength={1024}
-                  disabled={session.demoMode}
-                  autoComplete="new-password"
-                />
-              </Field>
-              <Field label="Confirm new password">
-                <input
-                  name="confirmation"
-                  type="password"
-                  required
-                  minLength={12}
-                  maxLength={1024}
-                  disabled={session.demoMode}
-                  autoComplete="new-password"
-                />
-              </Field>
-            </div>
-            <InlineError message={error} />
-            <Button type="submit" busy={saving} disabled={session.demoMode}>
-              <KeyRound size={15} />
-              Update password
-            </Button>
-          </form>
+          {!session.authDisabled && (
+            <>
+              <h3 className="small-section-title password-heading">
+                <KeyRound size={15} />
+                Change password{session.demoMode && <span className="muted">Unavailable in demo</span>}
+              </h3>
+              <form className="password-form" onSubmit={changePassword}>
+                <Field label="Current password">
+                  <input
+                    name="currentPassword"
+                    type="password"
+                    required
+                    disabled={session.demoMode}
+                    autoComplete="current-password"
+                  />
+                </Field>
+                <div className="form-grid">
+                  <Field label="New password">
+                    <input
+                      name="newPassword"
+                      type="password"
+                      required
+                      minLength={12}
+                      maxLength={1024}
+                      disabled={session.demoMode}
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                  <Field label="Confirm new password">
+                    <input
+                      name="confirmation"
+                      type="password"
+                      required
+                      minLength={12}
+                      maxLength={1024}
+                      disabled={session.demoMode}
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                </div>
+                <InlineError message={error} />
+                <Button type="submit" busy={saving} disabled={session.demoMode}>
+                  <KeyRound size={15} />
+                  Update password
+                </Button>
+              </form>
+            </>
+          )}
         </section>
         <section className="settings-section">
           <SectionHeading title="Workspace data" />
