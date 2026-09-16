@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { transitionCompany, type Company } from '../shared/crm.ts';
 import { Store, websiteKey } from './store.ts';
+import { PostgresStore } from './postgres-store.ts';
+import postgres, { type TransactionSql } from 'postgres';
 import { backupDatabase } from './backup.ts';
 import { runtimeConfig } from './config.ts';
 import { createCompanySchema, leadSchema, parseWebsiteLead } from '../shared/validation.ts';
@@ -161,6 +164,123 @@ test('retrying the same webhook is idempotent and changed payloads cannot reuse 
     store.close();
   }
 });
+
+test('Postgres intake replays reordered JSONB and locks before matching submissions', async (testContext) => {
+  const store = new PostgresStore('postgres://unused:unused@127.0.0.1:1/unused');
+  testContext.after(() => store.sql.end({ timeout: 0 }));
+  const input = parseWebsiteLead({ fullName: 'Jordan Lee', email: 'jordan@example.test', products: 'Goods' });
+  const payload = Object.fromEntries(Object.entries(JSON.parse(JSON.stringify(input))).reverse());
+  const queries: string[] = [];
+  const transaction = (async (strings: TemplateStringsArray) => {
+    const query = strings.join('?');
+    if (query.includes('pg_advisory_xact_lock')) {
+      queries.push('lock');
+      return [];
+    }
+    if (query.includes('from public.submissions')) {
+      queries.push('submissions');
+      return [{ company_id: prospect.id, payload }];
+    }
+    if (query.includes('from public.companies')) return [{ id: prospect.id, tags: [] }];
+    assert.fail(`Unexpected intake query: ${query}`);
+  }) as unknown as TransactionSql;
+  testContext.mock.method(
+    store.sql,
+    'begin',
+    async (callback: (transaction: TransactionSql) => Promise<unknown>) => callback(transaction),
+  );
+  const result = await store.ingestLead(input, 'postgres-replay');
+  assert.equal(result.company.id, prospect.id);
+  assert.equal(result.replayed, true);
+  assert.equal(result.created, false);
+  assert.deepEqual(queries, ['lock', 'submissions']);
+  await assert.rejects(
+    () => store.ingestLead({ ...input, products: 'Changed' }, 'postgres-replay'),
+    /different submission/,
+  );
+});
+
+test(
+  'Postgres database intake stores JSONB and serializes concurrent submissions',
+  {
+    skip: !process.env.CRM_TEST_DATABASE_URL,
+  },
+  async (testContext) => {
+    const connectionString = process.env.CRM_TEST_DATABASE_URL!;
+    const databaseUrl = new URL(connectionString);
+    assert.ok(['127.0.0.1', 'localhost'].includes(databaseUrl.hostname));
+    assert.equal(databaseUrl.pathname, '/goatara_intake_test');
+    const store = Object.create(PostgresStore.prototype) as PostgresStore;
+    Object.defineProperty(store, 'sql', {
+      value: postgres(connectionString, { ssl: false, prepare: false, max: 5, onnotice: () => {} }),
+    });
+    const companyIds = new Set<string>();
+    testContext.after(async () => {
+      try {
+        for (const companyId of companyIds)
+          await store.sql`delete from public.companies where id=${companyId}`;
+      } finally {
+        await store.sql.end({ timeout: 5 });
+      }
+    });
+    await store.sql.unsafe(
+      readFileSync(new URL('../supabase/migrations/20260916000100_crm.sql', import.meta.url), 'utf8'),
+    );
+    const identifier = randomUUID();
+    const input = parseWebsiteLead({
+      businessName: null,
+      fullName: 'Jordan Lee',
+      email: `${identifier}@example.test`,
+      phone: '+1 555 123 4567',
+      currentSituation: 'Selling online',
+      storeUrl: `https://${identifier}.example.test`,
+      products: 'Home goods',
+      productCount: '12',
+      monthlyRevenue: 'Under $5,000',
+      shippingMethod: '3PL / warehouse',
+      desiredStart: 'Within 1 month',
+    });
+    const first = await store.ingestLead(input, identifier);
+    companyIds.add(first.company.id);
+    assert.equal(first.company.name, 'Unconfirmed - Jordan Lee');
+    const [stored] = await store.sql`
+    select payload, jsonb_typeof(payload) as kind from public.submissions where idempotency_key=${identifier}
+  `;
+    assert.equal(stored.kind, 'object');
+    assert.deepEqual(stored.payload, input);
+    const replays = await Promise.all(Array.from({ length: 6 }, () => store.ingestLead(input, identifier)));
+    assert.ok(replays.every((result) => result.replayed && result.company.id === first.company.id));
+    await store.sql`update public.submissions set payload=${store.sql.json(JSON.stringify(input))} where idempotency_key=${identifier}`;
+    assert.equal((await store.ingestLead(input, identifier)).replayed, true);
+    const legacyHistory = (await store.snapshot()).submissions.find(
+      (submission) => submission.companyId === first.company.id,
+    );
+    assert.deepEqual(legacyHistory?.payload, input);
+    await assert.rejects(
+      () => store.ingestLead({ ...input, products: 'Changed' }, identifier),
+      /different submission/,
+    );
+    const returning = await store.ingestLead({ ...input, products: 'Changed' }, `${identifier}-return`);
+    assert.equal(returning.company.products, input.products);
+    const [history] =
+      await store.sql`select count(*)::int as count from public.submissions where company_id=${first.company.id}`;
+    assert.equal(history.count, 2);
+    const concurrentInput = { ...input, email: `new-${identifier}@example.test`, storeUrl: null };
+    const concurrent = await Promise.all(
+      Array.from({ length: 6 }, async () => {
+        const result = await store.ingestLead(concurrentInput, randomUUID());
+        companyIds.add(result.company.id);
+        return result;
+      }),
+    );
+    assert.equal(new Set(concurrent.map((result) => result.company.id)).size, 1);
+    assert.equal(concurrent.filter((result) => result.created).length, 1);
+    const [concurrentHistory] = await store.sql`
+    select count(*)::int as count from public.submissions where company_id=${concurrent[0].company.id}
+  `;
+    assert.equal(concurrentHistory.count, 6);
+  },
+);
 
 test('a returning client enquiry never resets their sales or client status', () => {
   const store = testStore();

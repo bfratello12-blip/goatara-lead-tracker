@@ -1,5 +1,6 @@
 import postgres, { type Sql, type TransactionSql } from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   onboardingTemplate,
   stageLabels,
@@ -71,7 +72,11 @@ interface SubmissionRow {
   id: string;
   company_id: string;
   received_at: string;
-  payload: Record<string, string | null>;
+  payload: Record<string, string | null> | string;
+}
+
+function readSubmissionPayload(payload: SubmissionRow['payload']): Record<string, string | null> {
+  return typeof payload === 'string' ? JSON.parse(payload) : payload;
 }
 
 export class PostgresStore {
@@ -254,7 +259,7 @@ export class PostgresStore {
           id: row.id,
           companyId: row.company_id,
           receivedAt: row.received_at,
-          payload: row.payload,
+          payload: readSubmissionPayload(row.payload),
         })),
       };
     });
@@ -365,13 +370,15 @@ export class PostgresStore {
     input: LeadInput,
     idempotencyKey: string | null,
   ): Promise<{ company: Company; created: boolean; replayed: boolean }> {
+    const payload = JSON.parse(JSON.stringify(input));
     return this.sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtext('goatara-crm-intake'))`;
       if (idempotencyKey) {
         const previous = await tx<
-          { company_id: string; payload: Record<string, unknown> }[]
+          Pick<SubmissionRow, 'company_id' | 'payload'>[]
         >`select company_id, payload from public.submissions where idempotency_key=${idempotencyKey}`;
         if (previous[0]) {
-          if (JSON.stringify(previous[0].payload) !== JSON.stringify(input))
+          if (!isDeepStrictEqual(readSubmissionPayload(previous[0].payload), payload))
             throw new AppError('This idempotency key was already used for a different submission', 409);
           return { company: await this.company(previous[0].company_id, tx), created: false, replayed: true };
         }
@@ -445,7 +452,7 @@ export class PostgresStore {
           await tx`insert into public.contacts (id,company_id,name,email,phone,title,is_primary) values (${randomUUID()},${company.id},${clean(input.fullName) ?? input.businessName},${email},${clean(input.phone)},null,${!hasPrimary})`;
         }
       }
-      await tx`insert into public.submissions (id,company_id,received_at,payload,idempotency_key) values (${randomUUID()},${company.id},${new Date().toISOString()},${JSON.stringify(input)},${idempotencyKey})`;
+      await tx`insert into public.submissions (id,company_id,received_at,payload,idempotency_key) values (${randomUUID()},${company.id},${new Date().toISOString()},${tx.json(payload)},${idempotencyKey})`;
       await this.activity(
         company.id,
         null,
