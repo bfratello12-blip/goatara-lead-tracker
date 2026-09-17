@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BriefcaseBusiness,
   CalendarCheck2,
-  ChartNoAxesCombined,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -101,7 +100,6 @@ export default function Overview() {
     .toSorted((first, second) => (first.followUpAt ?? '9999').localeCompare(second.followUpAt ?? '9999'))
     .slice(0, 5);
   const onboarding = data.companies.filter((company) => company.clientStatus === 'onboarding');
-  const pipelineValue = open.reduce((total, company) => total + company.dealValue, 0);
   const metrics = [
     {
       label: 'New leads',
@@ -110,14 +108,6 @@ export default function Overview() {
       icon: CirclePlus,
       color: 'blue',
       link: '/pipeline?stage=new',
-    },
-    {
-      label: 'Pipeline value',
-      value: money(pipelineValue),
-      hint: `${open.length} open opportunities`,
-      icon: ChartNoAxesCombined,
-      color: 'purple',
-      link: '/pipeline',
     },
     {
       label: 'Active clients',

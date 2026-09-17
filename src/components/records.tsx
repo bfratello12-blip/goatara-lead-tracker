@@ -46,6 +46,7 @@ export function CompanyTable({ companies, compact = false }: { companies: Compan
             <th>Company</th>
             {!compact && <th>Primary contact</th>}
             <th>Status</th>
+            {!compact && <th>Date</th>}
             {!compact && <th>Monthly retainer</th>}
             <th>Follow-up</th>
             <th>Owner</th>
@@ -57,6 +58,11 @@ export function CompanyTable({ companies, compact = false }: { companies: Compan
         <tbody>
           {companies.map((company) => {
             const contact = companyContact(data, company.id);
+            const firstSubmission = data.submissions
+              .filter((submission) => submission.companyId === company.id)
+              .toSorted((first, second) => first.receivedAt.localeCompare(second.receivedAt))[0];
+            const dateLabelText = company.clientSince ? 'Sign-on Date' : 'Date Submitted';
+            const dateValue = company.clientSince ?? firstSubmission?.receivedAt ?? company.createdAt;
             return (
               <tr key={company.id}>
                 <td>
@@ -83,6 +89,14 @@ export function CompanyTable({ companies, compact = false }: { companies: Compan
                 <td>
                   <StatusBadge company={company} />
                 </td>
+                {!compact && (
+                  <td>
+                    <span className="company-date">
+                      <strong>{dateLabelText}</strong>
+                      <span>{dateLabel(dateValue, 'MMM d, yyyy')}</span>
+                    </span>
+                  </td>
+                )}
                 {!compact && (
                   <td className="numeric">
                     {money(company.dealValue)}

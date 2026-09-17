@@ -927,6 +927,20 @@ strong {
   font-size: 12px;
   color: var(--muted);
 }
+.company-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  white-space: nowrap;
+}
+.company-date strong {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.company-date span {
+  font-size: 12px;
+}
 @media (max-width: 700px) {
   .website-enquiry-row {
     grid-template-columns: minmax(0, 1fr) 16px;

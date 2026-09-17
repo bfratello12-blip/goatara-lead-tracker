@@ -72,8 +72,7 @@ test('overview, search and navigation show real workspace data', async ({ page }
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
-  await expect(page.locator('.metrics-grid .metric')).toHaveCount(4);
-  await expect(page.locator('.metric-value').nth(1)).toHaveText('$38,700');
+  await expect(page.locator('.metrics-grid .metric')).toHaveCount(3);
   await expect(page.locator('.pipeline-summary-stage')).toHaveCount(6);
   await page.getByTitle('Search workspace (Ctrl+K)').click();
   await page.getByRole('combobox', { name: 'Search workspace' }).fill('Olivia');
@@ -98,6 +97,16 @@ test('overview, search and navigation show real workspace data', async ({ page }
     await expect(page.getByRole('heading', { name: 'Client onboarding' })).toBeVisible();
   }
   expect(errors).toEqual([]);
+});
+
+test('companies show submitted dates for prospects and sign-on dates for clients', async ({ page }) => {
+  await page.goto('/companies');
+  const table = page.locator('.company-table');
+  await expect(table.getByRole('columnheader', { name: 'Date' })).toBeVisible();
+  await expect(table.locator('.company-date strong').filter({ hasText: 'Date Submitted' }).first()).toBeVisible();
+  await expect(table.locator('.company-date strong').filter({ hasText: 'Sign-on Date' }).first()).toBeVisible();
+  await expect(table.locator('.company-date')).toHaveCount(await table.locator('tbody tr').count());
+  await expect(table.locator('.company-date').first().locator('span').last()).toHaveText(/\w{3} \d{1,2}, \d{4}/);
 });
 
 test('one company keeps its notes, contacts and tasks through conversion and onboarding', async ({
