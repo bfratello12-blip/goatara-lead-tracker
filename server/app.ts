@@ -160,6 +160,10 @@ export function createApp(store: AuthStore, config: AppConfig) {
       .status(201)
       .json(await store.createCompany(createCompanySchema.parse(request.body), context(response).user.id));
   });
+  app.delete('/api/companies/:id', async (request, response) => {
+    await store.deleteCompany(parameter(request, 'id'));
+    response.status(204).end();
+  });
   app.patch('/api/companies/:id', async (request, response) => {
     response.json(
       await store.updateCompany(

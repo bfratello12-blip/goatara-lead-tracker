@@ -243,6 +243,15 @@ export class Store {
     return this.transaction(() => this.insertCompany(input, actorId));
   }
 
+  deleteCompany(id: string): void {
+    this.transaction(() => {
+      this.company(id);
+      for (const table of ['submissions', 'activities', 'onboarding', 'tasks', 'notes', 'contacts'] as const)
+        this.db.prepare(`DELETE FROM ${table} WHERE companyId = ?`).run(id);
+      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+    });
+  }
+
   insertCompany(input: CompanyInput, actorId: string | null): Company {
     this.assertUser(input.ownerId);
     const now = new Date().toISOString();

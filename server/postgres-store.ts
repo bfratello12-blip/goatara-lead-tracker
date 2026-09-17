@@ -269,6 +269,19 @@ export class PostgresStore {
     return this.sql.begin(async (tx) => this.insertCompany(input, actorId, tx));
   }
 
+  async deleteCompany(id: string): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      await this.company(id, tx);
+      await tx`delete from public.submissions where company_id=${id}`;
+      await tx`delete from public.activities where company_id=${id}`;
+      await tx`delete from public.onboarding where company_id=${id}`;
+      await tx`delete from public.tasks where company_id=${id}`;
+      await tx`delete from public.notes where company_id=${id}`;
+      await tx`delete from public.contacts where company_id=${id}`;
+      await tx`delete from public.companies where id=${id}`;
+    });
+  }
+
   private async insertCompany(
     input: CompanyInput,
     actorId: string | null,

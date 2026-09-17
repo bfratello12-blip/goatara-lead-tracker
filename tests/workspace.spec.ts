@@ -109,6 +109,26 @@ test('companies show submitted dates for prospects and sign-on dates for clients
   await expect(table.locator('.company-date').first().locator('span').last()).toHaveText(/\w{3} \d{1,2}, \d{4}/);
 });
 
+test('deleting a company removes its CRM history and returns to companies', async ({ page }, testInfo) => {
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New company', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New company', exact: true });
+  await dialog.getByLabel('Business name').fill(`Delete me ${suffix}`);
+  await dialog.getByRole('button', { name: 'Create company', exact: true }).click();
+  await expect(page.getByRole('heading', { name: `Delete me ${suffix}`, exact: true })).toBeVisible();
+  page.once('dialog', (browserDialog) => void browserDialog.accept());
+    const deleteResponse = page.waitForResponse(
+      (response) => response.url().includes('/api/companies/') && response.request().method() === 'DELETE',
+    );
+  await page.getByRole('button', { name: 'Delete company', exact: true }).click();
+    const response = await deleteResponse;
+    expect(response.status()).toBe(204);
+  await expect(page).toHaveURL(/\/companies$/);
+  await page.goto('/companies');
+  await expect(page.getByText(`Delete me ${suffix}`, { exact: true })).toHaveCount(0);
+});
+
 test('one company keeps its notes, contacts and tasks through conversion and onboarding', async ({
   page,
 }, testInfo) => {

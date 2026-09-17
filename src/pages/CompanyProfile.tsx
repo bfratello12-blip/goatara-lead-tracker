@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { parseISO } from 'date-fns';
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -14,6 +14,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Trash2,
   UserPlus,
 } from 'lucide-react';
 import { salesStages, stageLabels, type Company } from '../../shared/crm.ts';
@@ -265,7 +266,8 @@ function CompanySidebar({ company }: { company: Company }) {
 }
 
 function Profile({ company }: { company: Company }) {
-  const { data } = useCRM();
+  const { data, perform } = useCRM();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const tab = ['overview', 'notes', 'tasks', 'onboarding', 'activity'].includes(params.get('tab') ?? '')
@@ -278,6 +280,13 @@ function Profile({ company }: { company: Company }) {
   const tasks = data.tasks.filter((task) => task.companyId === company.id);
   const activities = data.activities.filter((activity) => activity.companyId === company.id);
   const owner = data.team.find((member) => member.id === company.ownerId);
+  async function deleteCompany() {
+    const confirmed = window.confirm(
+      `Delete ${company.name}? This permanently removes the company, contacts, submissions, notes, tasks, onboarding, and activity history.`,
+    );
+    if (!confirmed) return;
+    if (await perform(`/companies/${company.id}`, 'DELETE', undefined, 'Company deleted')) navigate('/companies');
+  }
   useEffect(() => {
     if (location.hash)
       document
@@ -353,6 +362,9 @@ function Profile({ company }: { company: Company }) {
               <Pencil size={17} />
             </IconButton>
           </CompanyDialog>
+          <IconButton label="Delete company" className="danger" onClick={() => void deleteCompany()}>
+            <Trash2 size={17} />
+          </IconButton>
         </div>
       </header>
       <div className="profile-facts">
