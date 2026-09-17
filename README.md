@@ -31,7 +31,7 @@ New notes and activity in the non-demo workspace use a dedicated **Shared worksp
 
 ## What is implemented
 
-- Overview with live company and task counts, potential monthly retainers, overdue work, onboarding progress, and recent activity.
+- Overview with live company and task counts, website enquiries with direct submission-detail links, potential monthly retainers, overdue work, onboarding progress, and recent activity.
 - Sales pipeline: **New lead -> Contacted -> Discovery -> Proposal -> Won / Lost**. Move prospects with drag-and-drop, their stage selector, or an accessible card action menu. Lost opportunities can be reopened.
 - One persistent company record before and after signing. Marking it won sets its client start date and creates onboarding once; contacts, notes, tasks, submissions, and activity keep the same company ID.
 - Client statuses: **Onboarding, Active, Paused, Cancelled**. A signed relationship retains its won sales history; retention changes use client status instead of moving the original deal back to lost.
@@ -49,7 +49,7 @@ Deal value is currently a **monthly retainer in USD**, not a one-time contract t
 
 See [docs/goatara-vercel-integration.md](docs/goatara-vercel-integration.md) for the recommended Vercel and Supabase deployment path and the exact mapping for the current public form.
 
-The receiving endpoint is implemented and tested. **The existing public website is not present in this repository, so its submission handler still needs to be connected.** I confirmed the live contact form currently asks for first name, last name, email, optional phone, where the prospect sells today, and a product description. The CRM normalizer accepts those names as `firstName`, `lastName`, `email`, `phone`, `whereDoYouSellToday`, and `tellUsAboutProducts`; because that form does not ask for a business name, the first record is named `Unconfirmed - First Last` until the team updates it.
+The receiving endpoint is implemented and connected to the separate website repository (`northbound-commerce`, Vercel project `goatara`). The website's server-only relay sends all eleven fields below to this CRM's `/api/intake/leads` endpoint, in addition to the existing FormSubmit email. Business name remains optional; an unnamed business is initially called `Unconfirmed - Full Name`. The CRM also retains the older `firstName`, `lastName`, `whereDoYouSellToday`, and `tellUsAboutProducts` aliases.
 
 Set `LEAD_WEBHOOK_SECRET` to a securely generated random secret of at least 32 characters in the CRM server environment. Store the same secret in the website's **server-side** environment or a trusted form-automation service. Never put it in frontend JavaScript, a public form, a URL, or a `VITE_` variable. The intake route remains disabled with HTTP 503 until configured.
 
@@ -94,16 +94,22 @@ Idempotency-Key: <stable, unique form-submission ID>
 
 `businessName` is required by the canonical CRM payload, but the current public form can omit it: the adapter derives `Unconfirmed - First Last`. All other form fields may be omitted, `null`, or empty. An email, when provided, must be valid. Product count and revenue stay as text, preserving range answers from the website rather than forcing them into numbers. URLs are validated as HTTP(S), may omit the scheme, and are normalized. Unknown fields, including attribution/tracking parameters, are discarded.
 
+### Dashboard visibility
+
+The Overview's **Website enquiries** section shows each stored submission independently of the linked company's sales or client status. It shows the latest five first; **View all** reveals the older entries. Each row uses the submitted business/contact name and product details, receipt time, and the linked company's current status. Selecting a row opens that specific enquiry's original eleven-field payload. The URL retains the selected submission on reload; the company's **Submission history** still opens all its enquiries.
+
+An enquiry matching a manually added or already-won company appears in this section without creating a duplicate company or resetting onboarding. **New leads** remains a count of companies in the New stage, not a count of website submissions. An unmatched enquiry creates a New company and contact as before. Existing `public.submissions` rows appear after the updated CRM is deployed and the workspace is refreshed; no migration, data rewrite, resubmission, or website change is needed.
+
 ### Matching and retries
 
 - Each accepted submission is retained in the company's **Submission history**, even when the company already exists.
 - Intake matches exact, case-insensitive contact email or normalized storefront hostname. Recognized shared marketplace hosts include the listing/shop path, so different sellers are not combined merely because they use Etsy, Amazon, or a similar marketplace.
 - A match fills **missing** company fields and can add a contact. It never overwrites populated lead details, resets a sales stage or client status, or replaces notes. The new answers remain available in submission history.
-- Conflicting identities return **409** instead of silently merging records. Keep the submission in the website's queue for human review; correct the conflicting records/identity and retry.
+- Conflicting identities return **409** instead of silently merging records. Retain the existing email copy for human review; correct the conflicting records/identity and retry CRM delivery without resending email.
 - Without an email or identifiable store, a new submission creates a company. Reliable retry deduplication therefore requires a stable `Idempotency-Key`. Exact-name-only merging is deliberately avoided.
 - Retrying the same normalized payload with the same key returns the same company and does not append another submission. Reusing a key with changed data returns **409**.
 - A new company returns **201**; a matched company or replay returns **200**. Responses contain only `companyId`, `created`, and `replayed`.
-- Handle **400** validation errors and **409** conflicts for review. Retry **429**, network errors and **5xx** with exponential backoff, honoring `Retry-After` when supplied. The public website should persist/queue submissions before delivery so a CRM outage cannot lose a lead.
+- Handle **400** validation errors and **409** conflicts for review. The existing website relay retries **429**, network errors and **5xx** with bounded backoff. It has no durable retry queue; monitor its delivery logs and recover persistent failures from the email copy. See the integration guide for the current retry limits and deployment checks.
 
 Website integrations require bearer authentication. Direct-access CRM mutations retain allowed-origin checks but do not require session cookies or CSRF tokens. Origin checks are not authorization. The intake secret is never returned by Settings.
 

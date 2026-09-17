@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { CRMData } from '../shared/crm.ts';
+import { createCompanySchema } from '../shared/validation.ts';
 import { createApp } from '../server/app.ts';
 import { Store } from '../server/store.ts';
 
@@ -190,6 +191,138 @@ test('one company keeps its notes, contacts and tasks through conversion and onb
   expect(data.contacts.find((contact) => contact.companyId === companyId)?.name).toBe('Taylor Jordan');
   await page.reload();
   await expect(page.getByLabel('Client status', { exact: true })).toHaveValue('active');
+});
+
+test('website enquiries appear on the dashboard even when matched to a manually added client', async ({
+  page,
+}, testInfo) => {
+  const store = new Store();
+  const company = store.createCompany(
+    createCompanySchema.parse({
+      businessName: 'Manual onboarding company',
+      fullName: 'Original contact',
+      email: 'returning@example.test',
+      storeUrl: 'https://returning.example.test',
+      products: 'Original manual products',
+      stage: 'won',
+    }),
+    null,
+  );
+  const secret = 'e2e-only-dashboard-intake-secret-at-least-32-characters';
+  const server = createApp(store, {
+    production: false,
+    demoMode: false,
+    authDisabled: true,
+    appOrigin: 'http://127.0.0.1:5175',
+    cookieSecure: false,
+    trustProxy: false,
+    webhookSecret: secret,
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const port = (server.address() as AddressInfo).port;
+  const input = {
+    businessName: 'Website business name',
+    fullName: 'Website contact',
+    email: 'returning@example.test',
+    phone: '+1 555 010 4321',
+    storeUrl: 'https://returning.example.test/',
+    currentSituation: 'A new website enquiry',
+    products: 'Products from the website form',
+    productCount: '12',
+    monthlyRevenue: 'Under $5,000',
+    shippingMethod: 'Warehouse partner',
+    desiredStart: 'Within 1 month',
+  };
+  const submit = (key: string, payload = input) =>
+    fetch(`http://127.0.0.1:${port}/api/intake/leads`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${secret}`,
+        'idempotency-key': key,
+      },
+      body: JSON.stringify(payload),
+    });
+  try {
+    await page.route('**/api/**', async (route) => {
+      const upstream = new URL(route.request().url());
+      upstream.port = String(port);
+      await route.fulfill({ response: await route.fetch({ url: upstream.toString() }) });
+    });
+    await page.goto('/');
+    const enquiries = page.getByRole('region', { name: 'Website enquiries', exact: true });
+    await expect(enquiries.getByText('No website enquiries yet', { exact: true })).toBeVisible();
+    expect((await submit('dashboard-enquiry')).status).toBe(200);
+    expect((await submit('dashboard-enquiry')).status).toBe(200);
+    const followUp = { ...input, products: 'Latest website products', phone: '+1 555 010 4322' };
+    expect((await submit('dashboard-follow-up', followUp)).status).toBe(200);
+    await page.reload();
+    await expect(enquiries.locator('.website-enquiry-row')).toHaveCount(2);
+    await expect(enquiries.locator('.website-enquiry-row').first()).toContainText(followUp.products);
+    await expect(enquiries.locator('.count-badge')).toHaveText('2');
+    await expect(page.locator('.metric-value').first()).toHaveText('00');
+    const data = store.snapshot();
+    expect(data.companies).toHaveLength(1);
+    expect(data.companies[0].id).toBe(company.id);
+    expect(data.companies[0].stage).toBe('won');
+    expect(data.companies[0].clientStatus).toBe('onboarding');
+    expect(data.companies[0].products).toBe('Original manual products');
+    expect(data.submissions).toHaveLength(2);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth),
+    ).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath('website-enquiries.png'), fullPage: true });
+    await enquiries.locator('.website-enquiry-row').filter({ hasText: followUp.products }).click();
+    const dialog = page.getByRole('dialog', { name: 'Website enquiry', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.submission-record')).toHaveCount(1);
+    for (const value of Object.values(followUp))
+      await expect(dialog.getByText(value, { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close dialog' }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(new URL(page.url()).searchParams.has('submission')).toBe(false);
+    await page.getByRole('button', { name: /Submission history/ }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Website enquiries', exact: true }).locator('.submission-record'),
+    ).toHaveCount(2);
+    const newLead = {
+      ...input,
+      businessName: 'New website company',
+      email: 'brand-new@example.test',
+      storeUrl: 'https://brand-new.example.test/',
+    };
+    expect((await submit('brand-new-enquiry', newLead)).status).toBe(201);
+    await page.goto('/');
+    await expect(enquiries.locator('.website-enquiry-row')).toHaveCount(3);
+    await expect(enquiries.locator('.website-enquiry-row').first()).toContainText(newLead.businessName);
+    await expect(page.locator('.metric-value').first()).toHaveText('01');
+    const newCompanyData = store.snapshot();
+    expect(newCompanyData.companies).toHaveLength(2);
+    expect(newCompanyData.contacts).toHaveLength(2);
+    expect(newCompanyData.companies.find((record) => record.name === newLead.businessName)?.stage).toBe(
+      'new',
+    );
+    for (let index = 0; index < 4; index++) {
+      expect(
+        (await submit(`additional-enquiry-${index}`, { ...input, products: `Additional enquiry ${index}` }))
+          .status,
+      ).toBe(200);
+    }
+    await page.reload();
+    await expect(enquiries.locator('.website-enquiry-row')).toHaveCount(5);
+    await expect(enquiries.locator('.count-badge')).toHaveText('7');
+    await enquiries.getByRole('button', { name: 'View all' }).click();
+    await expect(enquiries.locator('.website-enquiry-row')).toHaveCount(7);
+    await enquiries.getByRole('button', { name: 'Show latest' }).click();
+    await expect(enquiries.locator('.website-enquiry-row')).toHaveCount(5);
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' });
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    store.close();
+  }
 });
 
 test('authenticated website submissions appear in the same company with their original fields', async ({

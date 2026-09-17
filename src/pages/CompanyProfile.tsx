@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { parseISO } from 'date-fns';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -36,12 +37,30 @@ import { OnboardingChecklist } from '../components/onboarding.tsx';
 function SubmissionHistory({ company }: { company: Company }) {
   const { data } = useCRM();
   const [open, setOpen] = useState(false);
-  const submissions = data.submissions.filter((submission) => submission.companyId === company.id);
+  const [params, setParams] = useSearchParams();
+  const submissions = data.submissions
+    .filter((submission) => submission.companyId === company.id)
+    .toSorted(
+      (first, second) => parseISO(second.receivedAt).getTime() - parseISO(first.receivedAt).getTime(),
+    );
+  const selectedSubmission = submissions.find((submission) => submission.id === params.get('submission'));
   return (
     <Modal
-      open={open}
-      onOpenChange={setOpen}
-      title="Website enquiries"
+      open={open || Boolean(selectedSubmission)}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && params.has('submission')) {
+          setParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              next.delete('submission');
+              return next;
+            },
+            { replace: true },
+          );
+        }
+      }}
+      title={selectedSubmission ? 'Website enquiry' : 'Website enquiries'}
       description={company.name}
       wide
       trigger={
@@ -54,7 +73,7 @@ function SubmissionHistory({ company }: { company: Company }) {
     >
       <div className="modal-body">
         {submissions.length ? (
-          submissions.map((submission) => (
+          (selectedSubmission ? [selectedSubmission] : submissions).map((submission) => (
             <section className="submission-record" key={submission.id}>
               <h3>
                 <CalendarDays size={16} />

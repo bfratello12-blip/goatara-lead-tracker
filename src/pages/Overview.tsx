@@ -1,4 +1,5 @@
-import { format } from 'date-fns';
+import { useState } from 'react';
+import { format, parseISO } from 'date-fns';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -6,16 +7,85 @@ import {
   BriefcaseBusiness,
   CalendarCheck2,
   ChartNoAxesCombined,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CirclePlus,
+  FileClock,
   Users,
 } from 'lucide-react';
 import { salesStages, stageLabels } from '../../shared/crm.ts';
 import { useCRM } from '../context.tsx';
-import { companyContact, isOverdue, money, onboardingProgress, today } from '../lib.ts';
-import { Avatar, Empty, PageHeader, SectionHeading } from '../components/ui.tsx';
+import { companyContact, dateLabel, isOverdue, money, onboardingProgress, today } from '../lib.ts';
+import { Avatar, Empty, PageHeader, SectionHeading, StatusBadge } from '../components/ui.tsx';
 import { CompanyDialog } from '../components/forms.tsx';
 import { ActivityList, CompanyTable, TaskList } from '../components/records.tsx';
+
+function WebsiteEnquiries() {
+  const { data } = useCRM();
+  const [showAll, setShowAll] = useState(false);
+  const submissions = data.submissions.toSorted(
+    (first, second) => parseISO(second.receivedAt).getTime() - parseISO(first.receivedAt).getTime(),
+  );
+  const visible = showAll ? submissions : submissions.slice(0, 5);
+  return (
+    <section className="website-enquiries-section" aria-label="Website enquiries">
+      <SectionHeading title="Website enquiries" count={submissions.length}>
+        {submissions.length > 5 && (
+          <button
+            type="button"
+            className="text-link"
+            aria-expanded={showAll}
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? 'Show latest' : 'View all'}
+            {showAll ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        )}
+      </SectionHeading>
+      {visible.length ? (
+        <ul className="website-enquiry-list">
+          {visible.map((submission) => {
+            const company = data.companies.find((record) => record.id === submission.companyId);
+            const payload = submission.payload;
+            const name = payload.businessName || payload.fullName || company?.name || 'Website enquiry';
+            return (
+              <li key={submission.id}>
+                <Link
+                  className="website-enquiry-row"
+                  to={`/companies/${encodeURIComponent(submission.companyId)}?submission=${encodeURIComponent(submission.id)}`}
+                  aria-label={`Open website enquiry from ${name}, ${dateLabel(submission.receivedAt, 'PPpp')}`}
+                >
+                  <span className="website-enquiry-contact">
+                    <strong>{name}</strong>
+                    <span className="cell-secondary">{payload.fullName || 'No contact name'}</span>
+                    {payload.email && <span className="cell-secondary">{payload.email}</span>}
+                  </span>
+                  <span className="website-enquiry-details">
+                    <span>{payload.products || 'No product details'}</span>
+                    {payload.desiredStart && <span className="cell-secondary">{payload.desiredStart}</span>}
+                  </span>
+                  <span className="website-enquiry-received">
+                    <time dateTime={parseISO(submission.receivedAt).toISOString()}>
+                      {dateLabel(submission.receivedAt, 'MMM d, yyyy, h:mm a')}
+                    </time>
+                    {company && <StatusBadge company={company} />}
+                  </span>
+                  <ArrowUpRight size={16} aria-hidden="true" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="website-enquiries-empty">
+          <FileClock size={18} />
+          <span>No website enquiries yet</span>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function Overview() {
   const { data, session } = useCRM();
@@ -102,6 +172,8 @@ export default function Overview() {
           </Link>
         ))}
       </div>
+
+      <WebsiteEnquiries />
 
       <section className="pipeline-overview">
         <SectionHeading title="Sales pipeline" link="/pipeline" linkText="View pipeline">
